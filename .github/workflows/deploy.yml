@@ -1,34 +1,78 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages with Docker
 
+# This workflow runs when:
+# 1. Code is pushed to the main branch
+# 2. Manually triggered through the GitHub Actions UI
 on:
   push:
     branches:
       - main  # or your default branch
+  # Allow manual workflow runs
+  workflow_dispatch:
 
+# Permissions needed for the workflow:
+# 'contents: write' is required to push to the gh-pages branch
 permissions:
   contents: write  # required to push to gh-pages branch
 
+# Jobs are the individual units of work in a workflow
 jobs:
+  # The 'deploy' job handles building and deploying the app
   deploy:
+    # This job runs on the latest Ubuntu runner provided by GitHub
     runs-on: ubuntu-latest
 
+    # Sequential steps to execute as part of the job
     steps:
+      # Step 1: Check out the repository code
+      # This makes the repository code available to the workflow
       - name: Checkout
         uses: actions/checkout@v4
           
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      # Step 2: Set up Docker Buildx
+      # Buildx provides enhanced build capabilities for Docker
+      # It's needed for efficiently building the Docker image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      # Step 3: Build the Docker image
+      # This step uses the Dockerfile in the repo to create an image
+      # The image is only built locally (not pushed to a registry)
+      # and tagged as 'my-react-app:latest'
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
         with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build
-        run: bun run build
-
+          # Use the current directory as build context
+          context: .
+          # Don't push to a registry
+          push: false
+          # Load the image into the Docker daemon
+          load: true
+          # Tag the image as 'my-react-app:latest'
+          tags: my-react-app:latest
+      
+      # Step 4: Extract build artifacts from the Docker container
+      # This creates a temporary container, copies the build files out,
+      # and then removes the container
+      - name: Extract build artifacts
+        run: |
+          # Create a container from the image without starting it
+          container_id=$(docker create my-react-app:latest)
+          # Create the output directory to store the build files
+          mkdir -p dist
+          # Copy the build artifacts from the container's /output directory
+          # to the local dist directory
+          docker cp $container_id:/output/. ./dist/
+          # Remove the temporary container
+          docker rm $container_id
+      
+      # Step 5: Deploy to GitHub Pages
+      # This step takes the files from the dist directory
+      # and publishes them to the gh-pages branch
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
+          # Use the automatically provided GitHub token for authentication
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # The directory containing the files to be deployed
           publish_dir: ./dist
